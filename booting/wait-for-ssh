@@ -1,0 +1,47 @@
+#!/bin/bash
+
+if [[ -z "$2" ]]; then
+	echo "Usage: wait-for-ssh <kernel-version> <hostname> [timeout]" >&2
+	echo "       eg:" >&2
+	echo "       $ wait-for-ssh \$(cat build/include/config/kernel.release) yourhost.net" >&2
+	exit 1
+fi
+
+expected="$1"
+hostname="$2"
+timeout="$3"
+
+if [[ "$timeout" -lt 5 ]]; then
+	timeout=5
+fi
+
+waited=0
+while true
+do
+	if [[ ! -z "$timeout" && "$waited" -ne 0 ]]; then
+		echo "Waited $waited of $timeout ..."
+
+		if [[ "$waited" -ge "$timeout" ]]; then
+			echo "Timed out!"
+			exit 1
+		fi
+	fi
+
+	uname=$(ssh -o ConnectTimeout=10 "$hostname" uname -r)
+
+	if [[ $? -ne 0 ]]; then
+	    	sleep 5
+		waited=$((waited+5))
+		continue
+	fi
+
+	if [[ "$uname" == "$expected" ]]; then
+		echo "Got kernel version $uname after $waited seconds"
+		exit 0
+	else
+		echo "System up, but wrong kernel $uname != $expected"
+	fi
+
+	sleep 5
+	waited=$((waited+5))
+done

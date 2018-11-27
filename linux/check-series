@@ -1,0 +1,101 @@
+#!/bin/bash
+
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+ORANGE='\033[0;33m'
+DEFAULT='\033[0m'
+
+function main
+{
+	if [[ -z "$1" ]]; then
+		against=HEAD^
+	else
+		against="$1"
+	fi
+
+	warned=0
+
+	for commit in $(git rev-list --abbrev-commit --reverse "$against"..HEAD)
+	do
+		subject=$(git log -1 --format="%s" "$commit")
+		warnings=$(check_commit "$commit" "$subject")
+		if [[ -n "$warnings" ]]; then
+			echo -e "${ORANGE}Warnings${DEFAULT} for commit ${GREEN}$commit ${BLUE}'$subject'${DEFAULT}" >&2
+			echo "$warnings" >&2
+			echo >&2
+
+			warned=1
+		fi
+	done
+
+	if [[ $warned -eq 0 ]]; then
+		echo "OK!"
+	fi
+}
+
+function check_sobs
+{
+	local commit=$1
+
+	if git rev-parse --verify "$commit"^2 > /dev/null 2>&1
+	then
+		# It has at least 2 parents, ie. it's a merge
+		# We don't sign off merges, so we're done
+		return
+	fi
+
+	committer=$(git log -1 --format='%cn <%ce>' "$commit")
+
+	if ! git log -1 --format=%b "$commit" | grep "Signed-off-by: $committer" > /dev/null
+	then
+		echo "  Not SOB committer '$committer'"
+	fi
+
+	author=$(git log -1 --format='%an <%ae>' "$commit")
+
+	if ! git log -1 --format=%b "$commit" | grep "Signed-off-by: $author" > /dev/null
+	then
+		echo "  Not SOB author '$author'"
+	fi
+}
+
+function check_addrs_root
+{
+	local commit="$1"
+
+	committer=$(git log -1 --format='%ce' "$commit")
+	if [[ $committer =~ .*root.* ]]; then
+		echo "  Committed by root!"
+	fi
+
+	author=$(git log -1 --format='%ae' "$commit")
+	if [[ $author =~ .*root.* ]]; then
+		echo "  Authored by root!"
+	fi
+
+	if git log -1 --format=%b "$commit" | grep "by: .*root.*" > /dev/null
+	then
+		echo "  SOBs mention root"
+	fi
+}
+
+function check_whitespace
+{
+	local commit="$1"
+
+	if ! git log -1 --format="%h" --check "$commit" > /dev/null
+	then
+		echo "  Introduces whitespace errors"
+		git log -1 --format="%h" --check "$commit"
+	fi
+}
+
+function check_commit
+{
+	check_sobs "$1" "$2"
+	check_addrs_root "$1" "$2"
+	check_whitespace "$1" "$2"
+}
+
+main "$@"
+exit 0

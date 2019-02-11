@@ -1,0 +1,129 @@
+#!/usr/bin/python3
+
+import os, sys, struct
+from tempfile import mkstemp
+from subprocess import check_output, CalledProcessError, STDOUT
+
+
+def usage():
+    print("Usage: ppc-disasm [--le|--be] <hex instruction>+", file=sys.stderr)
+    print("eg:", file=sys.stderr)
+    print(" $ ppc-disasm 7c0802a6 60000000 0x4800000e", file=sys.stderr)
+    print(" Decoding as big endian", file=sys.stderr)
+    print(" mflr    r0", file=sys.stderr)
+    print(" nop", file=sys.stderr)
+    print(" ba      0xc", file=sys.stderr)
+
+
+def find_objdump(little_endian):
+    objdump = os.environ.get('POWERPC_OBJDUMP', None)
+    if objdump is not None:
+        return objdump
+
+    fd, path = mkstemp()
+
+    f = os.fdopen(fd, 'w')
+    f.write('\0\0\0\0')
+    f.close()
+
+    for candidate in ['objdump',
+                      'ppc-objdump',
+                      'ppc64-objdump',
+                      'ppc64le-objdump',
+                      'powerpc-objdump',
+                      'powerpc64-objdump',
+                      'powerpc64le-objdump',
+                      'powerpc-linux-gnu-objdump',
+                      'powerpc64-linux-gnu-objdump',
+                      'powerpc64le-linux-gnu-objdump']:
+        try:
+            run_objdump(candidate, path, little_endian)
+        except (CalledProcessError, OSError) as e:
+            # Uncomment if you're having trouble finding a working objdump
+            #print(e)
+            pass
+        else:
+            objdump = candidate
+            break
+
+    os.unlink(path)
+    return objdump
+
+
+def run_objdump(objdump, path, little_endian):
+    if little_endian:
+        endian = '-EL'
+    else:
+        endian = '-EB'
+
+    cmd = '%s -b binary -m powerpc -D %s %s' % (objdump, endian, path)
+
+    out = check_output(cmd.split(), stderr=STDOUT).decode('utf-8')
+    line = out.splitlines()[-1]
+    text = line.split(' ', 7)[7].strip()
+    return text
+
+
+def decode_one(arg, objdump, little_endian):
+    tmp = None
+
+    if os.path.exists(arg):
+        print("Using file", arg, file=sys.stderr)
+        path = arg
+    else:
+        instr = int(arg, 16)
+        data = struct.pack('BBBB',
+                           (instr >> 24) & 0xff,
+                           (instr >> 16) & 0xff,
+                           (instr >>  8) & 0xff,
+                            instr        & 0xff)
+
+        fd, path = mkstemp()
+        tmp = path
+
+        f = os.fdopen(fd, 'wb')
+        f.write(data)
+        f.close()
+
+    try:
+        text = run_objdump(objdump, path, little_endian)
+    except (CalledProcessError, OSError) as e:
+        print("Failed disassembly", e, file=sys.stderr)
+        return -1
+    else:
+        print(text)
+    finally:
+        if tmp:
+            os.unlink(tmp)
+
+    return 0
+
+
+def main(args):
+    if len(args) == 0:
+        usage()
+        return 1
+
+    little_endian = False
+    for arg in args:
+        if arg == '--be':
+            little_endian = False
+            args.remove(arg)
+        elif arg == '--le':
+            little_endian = True
+            args.remove(arg)
+
+    print('Decoding as %s endian' % ("little" if little_endian else "big"), file=sys.stderr)
+
+    objdump = find_objdump(little_endian)
+    if objdump is None:
+        print("Error: couldn't find a working objdump!", file=sys.stderr)
+        return 1
+
+    print('Using objdump:', objdump, file=sys.stderr)
+
+    for arg in args:
+        decode_one(arg, objdump, little_endian)
+
+
+sys.exit(main(sys.argv[1:]))

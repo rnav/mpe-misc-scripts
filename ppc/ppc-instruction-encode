@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+
+"""Usage: ppc-instruction-encode (start-bit:value)+
+
+For example, to encode:
+
+    ori r17, r18, 123
+
+You use:
+
+    ppc-instruction-encode 0:24 6:17 11:18 16:123
+
+Which says the field starting at bit 0 (IBM numbering) should have the value
+24. The field starting at bit 6 should have value 17, and so on.
+
+If you look at the opcode definition for ori, you'll see those bit numbers come
+directly from there.
+"""
+
+import sys
+
+if len(sys.argv) < 2:
+    print(__doc__, file=sys.stderr)
+    sys.exit(1)
+
+fields = []
+
+for arg in sys.argv[1:]:
+    shift, value = arg.split(':')
+    if not value:
+        value = 0
+
+    fields.append([int(shift), value])
+
+
+instruction = 0
+extra_fields = []
+
+for i in range(0, len(fields)):
+    j = i + 1
+    if j == len(fields):
+        shift = 0
+    else:
+        shift = 32 - fields[j][0]
+
+    value = fields[i][1]
+
+    try:
+        value = int(value)
+    except ValueError:
+        extra_fields.append('%s << %s' % (value, shift))
+    else:
+        instruction = instruction | (value << shift)
+
+print(".long", hex(instruction))
+
+for extra in extra_fields:
+    print(extra)

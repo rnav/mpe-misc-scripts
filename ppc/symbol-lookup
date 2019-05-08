@@ -1,0 +1,44 @@
+#!/usr/bin/python
+
+import sys
+from copy import copy
+
+addrs = []
+
+if len(sys.argv) >= 2:
+    args = sys.argv[1:]
+else:
+    args = sys.stdin.readlines()
+
+for arg in args:
+    addr = int(arg.strip(), 16)
+    if addr < 0xc000000000000000:
+        addr += 0xc000000000000000
+    addrs.append(addr)
+
+
+f = open('System.map', 'r')
+
+last_function = ''
+last_addr = 0
+
+for line in f.readlines():
+    bits = line.split()
+    if len(bits) != 3:
+        continue
+
+    current_addr = int(bits[0], 16)
+
+    for addr in copy(addrs):
+        if current_addr > addr:
+            offset = addr - last_addr
+            print "%s+0x%x" % (last_function, offset)
+            addrs.remove(addr)
+
+    if len(addrs) == 0:
+        break
+
+    last_function = bits[2]
+    last_addr = current_addr
+
+f.close()

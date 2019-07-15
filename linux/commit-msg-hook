@@ -65,8 +65,7 @@ if enabled('trim-cc'):
         print('\n'.join([('    ' + s) for s in removed]))
 
 
-# Convert Message-Id tags into Link tags and move them to the end of the
-# change log.
+# Convert Message-Id tags into Link tags.
 #
 # Enable with:
 # git config linux.convert-message-id true
@@ -76,17 +75,17 @@ if enabled('convert-message-id'):
     import re
     patt = re.compile('^(\s*)Message-Id:\s*<?([^\s>]+)>?\s*$', re.I)
 
-    keep = []
-    links = []
-    for line in lines:
+    found = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         match = patt.match(line)
         if match:
-            links.append('%sLink: https://lore.kernel.org/r/%s\n' % match.groups())
-        else:
-            keep.append(line)
+            found = True
+            lines[i] = '%sLink: https://lore.kernel.org/r/%s\n' % match.groups()
+        i += 1
 
-    if len(links):
-        lines = keep + links
+    if found:
         print("NOTE: converted Message-Id tag into Link tag.")
 
 

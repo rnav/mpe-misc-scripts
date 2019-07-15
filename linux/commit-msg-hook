@@ -14,6 +14,8 @@ def enabled(key):
     return (rc == 0 and output == 'true')
 
 
+lines = open(sys.argv[1], 'r').readlines()
+
 # Rewrite git-cherry-pick style commit markers into the preferred form for
 # Linux stable.
 #
@@ -26,13 +28,11 @@ if enabled('stable-cherry-pick'):
     import re
     patt = re.compile('^\s*cherry picked from commit ([a-fA-F0-9]+)\s*$')
 
-    lines = open(sys.argv[1], 'r').readlines()
     for line in lines:
         match = patt.match(line)
         if match:
             lines.remove(line)
             lines.insert(1, '\ncommit %s upstream.\n' % match.group(1))
-            open(sys.argv[1], 'w').writelines(lines)
             break
 
 
@@ -45,7 +45,6 @@ if enabled('trim-cc'):
     import re
     patt = re.compile('^\s*(Cc: (.*))\s*$', re.I)
 
-    lines = open(sys.argv[1], 'r').readlines()
     keep = []
     removed = []
     for line in lines:
@@ -56,7 +55,7 @@ if enabled('trim-cc'):
             keep.append(line)
 
     if len(removed):
-        open(sys.argv[1], 'w').writelines(keep)
+        lines = keep
         print("NOTE: removed %d superfluous Cc: tags" % len(removed))
         print('\n'.join([('    ' + s) for s in removed]))
 
@@ -72,7 +71,6 @@ if enabled('convert-message-id'):
     import re
     patt = re.compile('^(\s*)Message-Id:\s*<?([^\s>]+)>?\s*$', re.I)
 
-    lines = open(sys.argv[1], 'r').readlines()
     keep = []
     links = []
     for line in lines:
@@ -82,6 +80,10 @@ if enabled('convert-message-id'):
         else:
             keep.append(line)
 
-    open(sys.argv[1], 'w').writelines(keep + links)
+    if len(links):
+        lines = keep + links
+
+
+open(sys.argv[1], 'w').writelines(lines)
 
 sys.exit(0)

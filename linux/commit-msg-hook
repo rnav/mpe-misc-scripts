@@ -28,13 +28,16 @@ if enabled('stable-cherry-pick'):
     import re
     patt = re.compile('^\s*cherry picked from commit ([a-fA-F0-9]+)\s*$')
 
-    for line in lines:
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         match = patt.match(line)
         if match:
-            lines.remove(line)
-            lines.insert(1, '\ncommit %s upstream.\n' % match.group(1))
+            del(lines[i])
+            lines.insert(1, '\ncommit %s upstream.' % match.group(1))
             print("NOTE: rewrote cherry-pick reference into standard format.")
-            break
+        else:
+            i += 1
 
 
 # Trim non-functional Cc: tags
@@ -46,17 +49,18 @@ if enabled('trim-cc'):
     import re
     patt = re.compile('^\s*(Cc: (.*))\s*$', re.I)
 
-    keep = []
     removed = []
-    for line in lines:
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         match = patt.match(line)
         if match and 'stable@' not in match.group(1):
             removed.append(match.group(1))
+            del(lines[i])
         else:
-            keep.append(line)
+            i += 1
 
     if len(removed):
-        lines = keep
         print("NOTE: removed %d superfluous Cc: tags" % len(removed))
         print('\n'.join([('    ' + s) for s in removed]))
 

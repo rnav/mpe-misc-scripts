@@ -33,6 +33,7 @@ if enabled('stable-cherry-pick'):
         if match:
             lines.remove(line)
             lines.insert(1, '\ncommit %s upstream.\n' % match.group(1))
+            print("NOTE: rewrote cherry-pick reference into standard format.")
             break
 
 
@@ -82,6 +83,7 @@ if enabled('convert-message-id'):
 
     if len(links):
         lines = keep + links
+        print("NOTE: converted Message-Id tag into Link tag.")
 
 
 open(sys.argv[1], 'w').writelines(lines)

@@ -7,8 +7,9 @@
 # - applypatch-msg, to sanitise the commit message when using git-am.
 # - commit-msg, to post process commit messages after editing.
 
+import os
 import sys
-from subprocess import getstatusoutput
+from subprocess import getstatusoutput, call, PIPE
 
 def enabled(key):
     cmd = 'git config --get linux.%s' % key
@@ -123,6 +124,46 @@ if enabled('link-tag-to-end'):
 
         lines[last_non_comment] = s + ''.join(links) + '\n'
         print("NOTE: moved Link tag(s) to the end.")
+
+
+# Check Fixes tags.
+#
+# Enable with:
+# git config linux.check-fixes-tags true
+
+if enabled('check-fixes-tags'):
+    import re
+    patt = re.compile('^\s*Fixes:?\s*([^\s]+)\s+.*$', re.I)
+    strict_patt = re.compile('^\s*Fixes:\s*[a-f0-9]{12,} \("[^"]+"\)\s*$')
+
+    preparing = os.path.basename(sys.argv[0]) == 'prepare-commit-msg'
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = patt.match(line)
+        i += 1
+
+        if not match:
+            continue
+
+        if not strict_patt.match(line):
+            msg = "WARNING: Fixes tag on line %d doesn't match correct format" % i
+            if preparing:
+                lines.insert(i, "# %s\n" % msg)
+                i += 1
+            print(msg)
+            continue
+
+        sha = match.group(1)
+        cmd = 'git rev-parse -q --verify %s^{commit}' % sha
+        rc = call(cmd.split(), stdout=PIPE)
+        if rc != 0:
+            msg = "ERROR: couldn't find commit %s referenced in Fixes tag" % sha
+            if preparing:
+                lines.insert(i, "# %s\n" % msg)
+                i += 1
+            print(msg)
 
 
 open(sys.argv[1], 'w').writelines(lines)

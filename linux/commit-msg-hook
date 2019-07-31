@@ -2,8 +2,10 @@
 #
 # git hook to do various checks/transforms before committing
 #
-# Can be used as either or both a prepare-commit-msg hook and as an
-# applypatch-msg hook.
+# Can be used as the hook for any/all of:
+# - prepare-commit-msg, to preprocess commit messages before editing.
+# - applypatch-msg, to sanitise the commit message when using git-am.
+# - commit-msg, to post process commit messages after editing.
 
 import sys
 from subprocess import getstatusoutput

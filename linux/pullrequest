@@ -1,0 +1,266 @@
+#!/usr/bin/python3
+
+import os, sys, re
+from subprocess import call, check_call, check_output
+
+
+def tree_is_clean():
+    cmd = 'git status --porcelain'
+    for line in check_output(cmd.split()).decode('utf-8').splitlines():
+        if not line.startswith('?? '):
+            return False
+
+    return True
+
+
+def generate_diffstat(base, head):
+    if not tree_is_clean():
+        print('Error: tree is not clean! Aborting.', file=sys.stderr)
+        return False
+
+    cmd = 'git checkout %s' % base
+    check_call(cmd.split())
+
+    cmd = 'git merge --no-ff --no-commit %s' % head
+    rc = call(cmd.split())
+    if rc != 0:
+        print('============================================================')
+        print('Conflicted merge, fix up manually.')
+        print("When finished 'exit 0' to continue or 'exit 1' to abort.")
+        print('============================================================')
+        rc = call('bash')
+        if rc != 0:
+            print("Aborting as requested")
+            return False
+
+    cmd = 'git diff -M --stat=1000 --stat-graph-width=20 --summary HEAD'
+    diffstat = check_output(cmd.split()).decode('utf-8')
+    check_call('git reset --hard'.split())
+
+    return diffstat.rstrip()
+
+
+def get_addrs(base, head):
+    def get_emails(fmt):
+        cmd = 'git log --pretty=format:%s %s..%s' % (fmt, base, head)
+        return [b.decode('utf-8') for b in check_output(cmd.split()).splitlines()]
+
+    addrs = set(['linuxppc-dev@lists.ozlabs.org', 'linux-kernel@vger.kernel.org'])
+
+    # Authors
+    addrs.update(set(get_emails(r'%ae')))
+    # Committers
+    addrs.update(set(get_emails(r'%ce')))
+
+    # Ackers
+    cmd = 'git log --pretty=format:%%b %s..%s' % (base, head)
+    pattern = re.compile('^Acked-by:[^<]*<([^>]+)>.*')
+    for line in check_output(cmd.split()).splitlines():
+        m = pattern.match(line.decode('utf-8'))
+        if m:
+            addrs.add(m.group(1))
+
+    # Filter out ellerman addresses
+    addrs = filter(lambda a: 'ellerman' not in a, addrs)
+
+    # Sort
+    addrs = list(addrs)
+    addrs.sort()
+
+    if len(addrs) > 10:
+        print("Warning: more than 10 recipients on CC!", file=sys.stderr)
+
+    return addrs
+
+
+def print_header(out, base, head):
+    cmd = 'git cat-file -t %s' % head
+    head_type = check_output(cmd.split()).decode('utf-8').strip()
+
+    if head_type != 'tag':
+        head_type = 'branch'
+
+    print('To: Linus Torvalds <torvalds@linux-foundation.org>', file=out)
+    print('Subject: [GIT PULL] Please pull powerpc/linux.git %s %s' % (head, head_type), file=out)
+    print('Cc: ' + ', '.join(get_addrs(base, head)), file=out)
+    print('\n', file=out)
+
+
+def print_preamble(out, base, head, match):
+    release_version = match.group(1)
+
+    tagnum = int(match.group(2))
+    pull_prefix =''
+    if tagnum == 1:
+        since = 'next-base'
+        pull_type = 'updates'
+    else:
+        since = 'fixes-base'
+        pull_type = 'fixes'
+        if tagnum > 2:
+            pull_prefix = 'some more '
+
+    if pull_type == 'updates':
+        since = check_output('git rev-parse next-base^{commit}'.split())
+    else:
+        cmd = 'git merge-base %s %s' % (base, head)
+        since = check_output(cmd.split())
+
+    since = since.decode('utf-8').strip()
+    cmd = ['git', 'log', '-1', '--format=%s (%ci)', since]
+    since_details = check_output(cmd).decode('utf-8').strip()
+
+    print('Hi Linus,\n', file=out)
+    print('Please pull %spowerpc %s for %s:\n' % (pull_prefix, pull_type, release_version), file=out)
+
+    print('The following changes since commit %s:' % since, file=out)
+    print('\n  %s\n' % since_details, file=out)
+
+
+def print_upto(out, head):
+    cmd = 'git rev-parse %s^{commit}' % head
+    head_sha = check_output(cmd.split()).decode('utf-8').strip()
+    print('for you to fetch changes up to %s:\n' % head_sha, file=out)
+
+    cmd = ['git', 'log', '-1', '--format=%s (%ci)', head]
+    details = check_output(cmd).decode('utf-8').strip()
+    print('  %s\n' % details, file=out)
+
+
+def print_tag(out, tag):
+    cmd = 'git cat-file tag %s' % tag
+    lines = check_output(cmd.split()).decode('utf-8').splitlines()
+    for i, line in enumerate(lines):
+        if len(line) == 0:
+            break
+
+    lines = lines[i+1:]
+
+    for i, line in enumerate(lines):
+        if line == '-----BEGIN PGP SIGNATURE-----':
+            break
+
+    print('------------------------------------------------------------------', file=out)
+    print('\n'.join(lines[:i]), file=out)
+    print('\n------------------------------------------------------------------', file=out)
+
+
+def print_shortlog(out, base, head):
+    cmd = 'git shortlog ^%s %s' % (base, head)
+    output = check_output(cmd.split()).decode('utf-8')
+    print(output.strip(), file=out)
+
+
+def check_remote_ref(url, ref):
+    cmd = 'git rev-parse %s' % ref
+    local = check_output(cmd.split()).decode('utf-8').strip()
+
+    cmd = 'git ls-remote %s refs/tags/%s' % (url, ref)
+
+    for line in check_output(cmd.split()).decode('utf-8').splitlines():
+        if line.split()[0].strip() == local:
+            return True
+
+    return False
+
+
+def add_notes(out):
+    fname = '.git/pullnotes.txt'
+    if not os.path.exists(fname):
+        return
+
+    content = open(fname).read()
+    if len(content.strip()) == 0:
+        return
+
+    print(">>>>> NOTES", file=out)
+    out.write(open(fname).read())
+    print("<<<<< NOTES", file=out)
+
+
+def generate_out_of_area(tag, diffstat):
+    lines = diffstat.splitlines()
+    lines = filter(lambda s: 'arch/powerpc' not in s, lines)
+    lines = filter(lambda s: 'Documentation/powerpc' not in s, lines)
+    lines = filter(lambda s: 'tools/testing/selftests/powerpc' not in s, lines)
+    lines = filter(lambda s: 'drivers/misc/cxl' not in s, lines)
+    lines = filter(lambda s: 'drivers/misc/ocxl' not in s, lines)
+    lines = filter(lambda s: 'files changed' not in s, lines)
+
+    tmp = []
+    for line in lines:
+        words = line.split()
+        if 'delete mode' in line or 'create mode' in line:
+            path = words[3]
+        else:
+            path = words[0]
+
+        cmd = "git log --pretty=oneline --abbrev-commit -1 %s %s" % (tag, path)
+        print(cmd)
+        commit = check_output(cmd.split()).decode('utf-8').rstrip()
+        tmp.append("%s\t# %s" % (path, commit))
+
+    return '\n'.join(tmp)
+
+
+
+def main(args):
+    if len(args) > 1:
+        print('Usage: pullrequest', file=sys.stderr)
+        return False
+
+    url = 'https://git.kernel.org/pub/scm/linux/kernel/git/powerpc/linux.git'
+    base = 'master'
+
+    cmd = 'git tag --sort v:refname -l powerpc-*'
+    output = check_output(cmd.split())
+    head = output.decode('utf-8').splitlines()[-1].strip()
+
+    pattern = re.compile('^powerpc-([0-9]+\.[0-9]+)-([0-9]+)$')
+    tag_match = pattern.match(head)
+    if not tag_match:
+        print("Error: couldn't match pattern for tag?!", file=sys.stderr)
+        return False
+
+    print('Using head %s vs base %s' % (head, base), file=sys.stderr)
+
+    if not check_remote_ref(url, head):
+        print("Error: couldn't find %s at the remote URL, did you push?" % head, file=sys.stderr)
+        return False
+
+    diffstat = generate_diffstat(base, head)
+    if not diffstat:
+        print("Error: couldn't generate diffstat.", file=sys.stderr)
+        return False
+
+    out_of_area = generate_out_of_area(tag_match.group(0), diffstat)
+
+    with open('pullrequest.txt', 'w') as out:
+        print_preamble(out, base, head, tag_match)
+        add_notes(out)
+        print('are available in the git repository at:\n\n  %s tags/%s\n' % (url, head), file=out)
+        print_upto(out, head)
+        if len(out_of_area.strip()):
+            print("Out of area changes:\n%s\n" % out_of_area, file=out)
+        print_tag(out, head)
+        print_shortlog(out, base, head)
+        print('\n', file=out)
+        print(diffstat, file=out)
+
+    print("You can now edit pullrequest.txt, hit enter to continue")
+    sys.stdin.readline()
+
+    check_call('gpg --clearsign --yes pullrequest.txt'.split())
+
+    with open('pullrequest.txt', 'w') as out:
+        print_header(out, base, head)
+        out.write(open('pullrequest.txt.asc').read())
+
+    os.unlink('pullrequest.txt.asc')
+    check_call('gpg --verify pullrequest.txt'.split())
+
+    print("OK - written to pullrequest.txt")
+    return True
+
+
+sys.exit(0 if main(sys.argv[1:]) else 1)

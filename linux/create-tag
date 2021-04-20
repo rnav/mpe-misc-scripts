@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+
+import sys
+import re
+from subprocess import check_output, check_call, CalledProcessError
+
+
+def run_raw(cmd):
+    return check_output(cmd.split()).decode('utf-8')
+
+def run_lines(cmd):
+    return run_raw(cmd).splitlines()
+
+def run(cmd, line=0):
+    return run_lines(cmd)[line].strip()
+
+
+def main(args):
+    try:
+        tag_base = run('git config --get mpe.tagscript.base')
+    except CalledProcessError:
+        print("Error: no tag base configured, use 'git config --add mpe.tagscript.base <value>")
+        return 1
+
+    latest = run('git tag --sort v:refname -l %s-[0-9]*' % tag_base, line=-1)
+
+    print("Latest tag is", latest)
+
+    pattern = re.compile('^%s-([0-9]+)\.([0-9]+)-([0-9]+)$' % tag_base)
+    m = pattern.match(latest)
+    if not m:
+        print("Error: couldn't match pattern for tag?!", file=sys.stderr)
+        return 1
+
+    major = int(m.group(1))
+    minor = int(m.group(2))
+    tagnum = int(m.group(3))
+
+    print("Base version is %d.%d, tag number %d" % (major, minor, tagnum))
+
+    base_tag = 'v%d.%d' % (major, minor)
+    lines = run_lines('git tag -l %s' % base_tag)
+
+    if len(lines) == 0:
+        print("Base tag not found, still on %s release" % base_tag)
+        tagnum += 1
+        headline = '%s fixes for %d.%d' % (tag_base, major, minor)
+        if tagnum > 1:
+            headline += ' #%d' % tagnum
+    else:
+        print("Found base tag for %s, moving to next release" % base_tag)
+        minor += 1
+        tagnum = 1
+        headline = '%s updates for %d.%d' % (tag_base, major, minor)
+
+    next_tag = '%s-%d.%d-%d' % (tag_base, major, minor, tagnum)
+    print("Next tag is %s" % next_tag)
+
+    current_branch = run('git symbolic-ref --short HEAD')
+    base_branch = 'master'
+
+    print("Using base branch %s" % base_branch)
+    commits = run_lines('git rev-list --topo-order --reverse %s..' % base_branch)
+
+    f = open('tag.txt', 'w')
+    f.write('%s\n\n' % headline)
+
+    for commit in commits:
+        cmd = ['git', 'log', '-1', r'--pretty= - %h %s BY: %an', commit]
+        log = check_output(cmd).decode('utf-8')
+
+        cmd = ['git', 'log', '-1', r'--pretty=%b', commit]
+        body = check_output(cmd).decode('utf-8')
+        if 'stable@' in body:
+            stable = '  [cc stable]'
+        else:
+            stable = ''
+
+        f.write(log.rstrip())
+        f.write(stable)
+        f.write('\n')
+
+        if 'Merge' in log:
+            f.write(run_raw('git log -1 --pretty=%%b %s' % commit))
+
+    user_name = run('git config --get user.name')
+
+    other_patterns = [
+        re.compile("^Signed-off-by:\s*([^<]+).*$"),
+        re.compile("^Tested-by:\s*([^<]+).*$"),
+        re.compile("^Reviewed-by:\s*([^<]+).*$"),
+        re.compile("^Reported-by:\s*([^<]+).*$"),
+    ]
+    other_headers = [ 'other-sobs', 'testers', 'reviewers', 'reporters' ]
+    others = [ set(), set(), set(), set() ]
+    authors = set()
+    for commit in commits:
+        def add_contributer(s, c):
+            c = c.strip()
+            if c != user_name: # Don't thank ourself
+                s.add(c)
+
+        cmd = ['git', 'log', '-1', r'--pretty=%an', commit]
+        log = check_output(cmd).decode('utf-8')
+        add_contributer(authors, log)
+
+        cmd = ['git', 'log', '-1', r'--pretty=%b', commit]
+        body = check_output(cmd).decode('utf-8')
+        for line in body.splitlines():
+            for pattern, s in zip(other_patterns, others):
+                m = pattern.match(line)
+                if m:
+                    add_contributer(s, m.group(1))
+
+    l = list(authors)
+    l.sort()
+    f.write('\nThanks to:\n')
+    f.write(',\n'.join(l) + '\n\n')
+
+    for s, header in zip(others, other_headers):
+        s = s.difference(authors)
+        l = list(s)
+        l.sort()
+        f.write('And thanks to (%s):\n' % header)
+        f.write(',\n'.join(l) + '\n\n')
+
+    f.close()
+
+    if len(args) == 0 or args[0] != '-x':
+        print("\nWould create tag '%s'" % next_tag)
+        print(open('tag.txt').read())
+        return
+
+    print('Wrote tag.txt, edit it now, hit enter to continue')
+    response = sys.stdin.readline().strip()
+
+    print('Creating tag')
+    cmd = 'git tag -s -F tag.txt %s HEAD' % next_tag
+    check_call(cmd.split())
+
+    print('Created tag %s' % next_tag)
+    cmd = 'git show %s' % next_tag
+    check_call(cmd.split())
+
+
+sys.exit(main(sys.argv[1:]))

@@ -199,7 +199,7 @@ def generate_out_of_area(tag, diffstat):
         else:
             path = words[0]
 
-        cmd = "git log --pretty=oneline --abbrev-commit -1 %s %s" % (tag, path)
+        cmd = "git log --pretty=oneline --abbrev-commit -1 %s -- %s" % (tag, path)
         print(cmd)
         commit = check_output(cmd.split()).decode('utf-8').rstrip()
         tmp.append("%s\t# %s" % (path, commit))

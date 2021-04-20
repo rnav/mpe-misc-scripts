@@ -35,6 +35,10 @@ def generate_diffstat(base, head):
 
     cmd = 'git diff -M --stat=1000 --stat-graph-width=20 --summary HEAD'
     diffstat = check_output(cmd.split()).decode('utf-8')
+    if len(diffstat.strip()) == 0:
+        print('Error: diffstat is empty?!')
+        return False
+
     check_call('git reset --hard'.split())
 
     return diffstat.rstrip()

@@ -204,7 +204,7 @@ def generate_out_of_area(tag, diffstat):
         commit = check_output(cmd.split()).decode('utf-8').rstrip()
         tmp.append("%s\t# %s" % (path, commit))
 
-    return '\n'.join(tmp)
+    return '\n  '.join(tmp)
 
 
 

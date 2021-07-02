@@ -56,7 +56,6 @@ def main(args):
     next_tag = '%s-%d.%d-%d' % (tag_base, major, minor, tagnum)
     print("Next tag is %s" % next_tag)
 
-    current_branch = run('git symbolic-ref --short HEAD')
     base_branch = 'master'
 
     print("Using base branch %s" % base_branch)

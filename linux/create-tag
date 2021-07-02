@@ -47,19 +47,19 @@ def main(args):
         headline = '%s fixes for %d.%d' % (tag_base, major, minor)
         if tagnum > 1:
             headline += ' #%d' % tagnum
+        base_ref = 'master'
     else:
         print("Found base tag for %s, moving to next release" % base_tag)
         minor += 1
         tagnum = 1
         headline = '%s updates for %d.%d' % (tag_base, major, minor)
+        base_ref = base_tag
 
     next_tag = '%s-%d.%d-%d' % (tag_base, major, minor, tagnum)
     print("Next tag is %s" % next_tag)
 
-    base_branch = 'master'
-
-    print("Using base branch %s" % base_branch)
-    commits = run_lines('git rev-list --topo-order --reverse %s..' % base_branch)
+    print("Using base %s" % base_ref)
+    commits = run_lines('git rev-list --topo-order --reverse %s..' % base_ref)
 
     f = open('tag.txt', 'w')
     f.write('%s\n\n' % headline)

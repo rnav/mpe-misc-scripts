@@ -136,8 +136,6 @@ if enabled('check-fixes-tags'):
     patt = re.compile('^\s*Fixes:?\s*([^\s]+)\s+.*$', re.I)
     strict_patt = re.compile('^\s*Fixes:\s*[a-f0-9]{12,} \("[^"]+"\)\s*$')
 
-    preparing = os.path.basename(sys.argv[0]) == 'prepare-commit-msg'
-
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -149,9 +147,6 @@ if enabled('check-fixes-tags'):
 
         if not strict_patt.match(line):
             msg = "WARNING: Fixes tag on line %d doesn't match correct format" % i
-            if preparing:
-                lines.insert(i, "# %s\n" % msg)
-                i += 1
             print(msg)
             continue
 
@@ -160,9 +155,6 @@ if enabled('check-fixes-tags'):
         rc = call(cmd.split(), stdout=PIPE)
         if rc != 0:
             msg = "ERROR: couldn't find commit %s referenced in Fixes tag" % sha
-            if preparing:
-                lines.insert(i, "# %s\n" % msg)
-                i += 1
             print(msg)
 
 

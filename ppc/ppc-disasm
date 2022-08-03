@@ -30,6 +30,7 @@ def find_objdump(little_endian):
                       'ppc-objdump',
                       'ppc64-objdump',
                       'ppc64le-objdump',
+                      'ppc64le-elf-objdump',
                       'powerpc-objdump',
                       'powerpc64-objdump',
                       'powerpc64le-objdump',
